@@ -1,0 +1,209 @@
+{
+  "name": "AI Interview Agent",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "interview",
+        "responseMode": "responseNode",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "id": "webhook-trigger",
+      "name": "Interview Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "start",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "start"
+            },
+            {
+              "conditions": {
+                "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.body.type }}",
+                    "rightValue": "answer",
+                    "operator": { "type": "string", "operation": "equals" }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "answer"
+            }
+          ]
+        }
+      },
+      "id": "router",
+      "name": "Route by Type",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are Alex, a senior HR interviewer at a top tech company. You are professional, friendly, and encouraging. Your job is to conduct a realistic job interview.\n\nIMPORTANT RULES:\n1. Ask ONE question at a time\n2. Keep questions relevant to the candidate's background\n3. Start with an introduction and a simple open-ended question\n4. Mix behavioral (Tell me about a time...) and technical questions\n5. Be conversational and natural\n6. Response must be ONLY the question, no extra text\n7. Max 2-3 sentences per question"
+            },
+            {
+              "role": "user",
+              "content": "=Candidate Profile:\nName: {{ $json.body.profile.name }}\nDegree: {{ $json.body.profile.degree }} in {{ $json.body.profile.branch }}\nYear: {{ $json.body.profile.year }}\nTarget Role: {{ $json.body.profile.role }}\nSkills: {{ $json.body.profile.skills }}\nExperience: {{ $json.body.profile.experience }}\n\nThis is the START of the interview. Ask the first opening question to welcome the candidate and ask them to introduce themselves."
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 200,
+          "temperature": 0.7
+        }
+      },
+      "id": "groq-start",
+      "name": "Groq — First Question",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [680, 160],
+      "credentials": {
+        "groqApi": {
+          "id": "groq-creds",
+          "name": "Groq API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are Alex, a senior HR interviewer. You are currently mid-interview.\n\nIMPORTANT RULES:\n1. Listen to the candidate's answer carefully\n2. Ask a FOLLOW-UP or NEXT question based on their answer\n3. Keep questions relevant to their profile and previous answer\n4. Mix question types: technical, behavioral, situational\n5. Response must be ONLY the next question, no preamble\n6. Be encouraging but professional\n7. Max 2-3 sentences\n\nQuestion types to cycle through:\n- Technical (based on their skills)\n- Behavioral (Tell me about a time...)\n- Situational (What would you do if...)\n- Career goals (Where do you see yourself...)\n- Problem solving (How would you approach...)"
+            },
+            {
+              "role": "user",
+              "content": "=Candidate Profile:\nName: {{ $json.body.profile.name }}\nRole: {{ $json.body.profile.role }}\nSkills: {{ $json.body.profile.skills }}\nExperience: {{ $json.body.profile.experience }}\n\nQuestion Number: {{ $json.body.questionNum }}\n\nCandidate's Last Answer: \"{{ $json.body.answer }}\"\n\nBased on this answer, ask the next interview question."
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 200,
+          "temperature": 0.8
+        }
+      },
+      "id": "groq-followup",
+      "name": "Groq — Follow-up Question",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [680, 440],
+      "credentials": {
+        "groqApi": {
+          "id": "groq-creds",
+          "name": "Groq API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": "llama-3.3-70b-versatile",
+        "messages": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are an expert interview evaluator. Analyze the candidate's answer and return a JSON score.\n\nReturn ONLY valid JSON in this exact format:\n{\n  \"score\": <number 0-100>,\n  \"quality\": \"<excellent|good|average|poor>\",\n  \"feedback\": \"<one sentence feedback>\"\n}\n\nScoring criteria:\n- Relevance to question (30 points)\n- Clarity and structure (25 points) \n- Depth of knowledge (25 points)\n- Communication skills (20 points)"
+            },
+            {
+              "role": "user",
+              "content": "=Evaluate this interview answer:\n\nQuestion Number: {{ $json.body.questionNum }}\nCandidate Answer: \"{{ $json.body.answer }}\"\nTarget Role: {{ $json.body.profile.role }}\n\nReturn only the JSON score object."
+            }
+          ]
+        },
+        "options": {
+          "maxTokens": 150,
+          "temperature": 0.3
+        }
+      },
+      "id": "groq-score",
+      "name": "Groq — Score Answer",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGroq",
+      "typeVersion": 1,
+      "position": [680, 600],
+      "credentials": {
+        "groqApi": {
+          "id": "groq-creds",
+          "name": "Groq API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"question\": $('Groq — First Question').item.json.text, \"type\": \"first_question\" } }}"
+      },
+      "id": "respond-start",
+      "name": "Respond Start",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 160]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"question\": $('Groq — Follow-up Question').item.json.text, \"score\": $('Groq — Score Answer').item.json.text, \"type\": \"followup\" } }}"
+      },
+      "id": "respond-answer",
+      "name": "Respond Answer",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 520]
+    }
+  ],
+  "connections": {
+    "Interview Webhook": {
+      "main": [[{ "node": "Route by Type", "type": "main", "index": 0 }]]
+    },
+    "Route by Type": {
+      "main": [
+        [{ "node": "Groq — First Question", "type": "main", "index": 0 }],
+        [{ "node": "Groq — Follow-up Question", "type": "main", "index": 0 }]
+      ]
+    },
+    "Groq — First Question": {
+      "main": [[{ "node": "Respond Start", "type": "main", "index": 0 }]]
+    },
+    "Groq — Follow-up Question": {
+      "main": [[{ "node": "Groq — Score Answer", "type": "main", "index": 0 }]]
+    },
+    "Groq — Score Answer": {
+      "main": [[{ "node": "Respond Answer", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "instanceId": "local"
+  },
+  "tags": []
+}
